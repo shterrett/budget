@@ -1,34 +1,88 @@
 extern crate clap;
 extern crate time;
 
-use clap::{ Arg, App };
 use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::Path;
+use std::path::{ Path, PathBuf };
+use std::process::exit;
 use std::str::FromStr;
+use clap::{ Arg, App, SubCommand, ArgMatches };
 
 fn main() {
     let matches = App::new("Budget")
                       .version("001.0")
                       .author("Stuart <shterrett@gmail.com>")
                       .about("tracks value of single account")
-                      .arg(Arg::with_name("add")
-                               .short("a")
-                               .long("add")
-                               .help("add a new entry"))
+                      .arg(Arg::with_name("file")
+                           .help("alternate file")
+                           .short("f")
+                           .long("file")
+                           .takes_value(true))
+                      .subcommand(SubCommand::with_name("add")
+                                  .about("add an entry")
+                                  .arg(Arg::with_name("date")
+                                       .help("yyyy-mm-dd")
+                                       .index(1)
+                                       .required(true))
+                                  .arg(Arg::with_name("amount")
+                                       .help("float")
+                                       .index(2)
+                                       .required(true)))
                       .get_matches();
 
-    match env::home_dir() {
-        Some(path) => println!("{}", path.display()),
-        None => println!("Impossible to get your home dir!"),
+    let mut exit_code = 0;
+
+    let data_path = filepath(&matches, env::home_dir());
+    if !data_path.is_some() {
+        println!("Could not find file path");
+        exit(1);
     }
 
-    if matches.occurrences_of("add") > 0 {
-        println!("Now adding ... ");
+    match matches.subcommand_name() {
+        Some("add") => {
+           let success = run_add(&data_path.unwrap(), &matches);
+           if !success { exit_code = 1 };
+        },
+        Some(other) => { println!("Other subcommand {}", other); }
+        None => { println!("No subcommand") }
     }
 
-    println!("Done!");
+    exit(exit_code);
+}
+
+fn filepath(matches: &ArgMatches, default_path: Option<PathBuf>) -> Option<PathBuf> {
+    match matches.value_of("file") {
+        Some(path) => Some(PathBuf::from(path)),
+        None => {
+            match default_path {
+                Some(path) => Some(path.join(".budget")),
+                None => None
+            }
+        }
+    }
+}
+
+fn run_add(data_path: &Path, matches: &ArgMatches) -> bool {
+    match matches.subcommand_matches("add") {
+        Some(submatches) => {
+            let entry = Entry { date_string: submatches.value_of("date").unwrap(),
+                                amount_string: submatches.value_of("amount").unwrap()
+                            };
+            match entry.validate() {
+                Validation::Valid => write_to_file(&entry, data_path),
+                Validation::DateParseError => {
+                    println!("Invalid Date {}; must format as yyyy-mm-dd", entry.date_string);
+                    false
+                },
+                Validation::AmountParseError => {
+                    println!("Invalid Amount {}; must be a float", entry.amount_string);
+                    false
+                }
+            }
+        }
+        None => false
+    }
 }
 
 fn write_to_file(entry: &Entry, file_path: &Path) -> bool {
@@ -86,20 +140,22 @@ impl<'a> Entry<'a> {
     }
 
     fn format_for_write(&self) -> String {
-        self.date_string.to_string() + "|" + self.amount_string
+        self.date_string.to_string() + "|" + self.amount_string + "\n"
     }
 }
 
 #[cfg(test)]
 mod test {
     use std::fs::OpenOptions;
-    use std::io::BufReader;
     use std::io::BufRead;
+    use std::io::BufReader;
     use std::io::Write;
-    use std::path::Path;
+    use std::path::{ Path, PathBuf };
+    use clap::{ Arg, App };
     use super::{ Entry,
                  Validation,
-                 write_to_file
+                 write_to_file,
+                 filepath
                };
 
     #[test]
@@ -136,6 +192,50 @@ mod test {
 
         assert_eq!(valid_entry.validate(), Validation::Valid);
         assert_eq!(invalid_entry.validate(), Validation::AmountParseError);
+    }
+
+    #[test]
+    fn entry_formats_with_newline() {
+        let valid_date = "2016-09-01";
+        let valid_amount = "1000";
+
+        let valid_entry = Entry { date_string: valid_date,
+                                  amount_string: valid_amount
+                                };
+
+        let formatted = valid_entry.format_for_write();
+
+        assert_eq!(formatted, "2016-09-01|1000\n");
+    }
+
+    #[test]
+    fn returns_default_filepath() {
+        let matches = App::new("test")
+                          .arg(Arg::with_name("file")
+                                   .short("f")
+                                   .long("file")
+                                   .takes_value(true))
+                          .get_matches_from(vec!["test"]);
+
+        let default_path = PathBuf::from("/home");
+        let path = filepath(&matches, Some(default_path)).unwrap();
+
+        assert_eq!(path, PathBuf::from("/home/.budget"));
+    }
+
+    #[test]
+    fn returns_provided_filepath() {
+        let matches = App::new("test")
+                          .arg(Arg::with_name("file")
+                                   .short("f")
+                                   .long("file")
+                                   .takes_value(true))
+                          .get_matches_from(vec!["test", "-f", "/var/budget"]);
+
+        let default_path = PathBuf::from("/home");
+        let path = filepath(&matches, Some(default_path)).unwrap();
+
+        assert_eq!(path, PathBuf::from("/var/budget"));
     }
 
     #[test]
@@ -184,9 +284,12 @@ mod test {
                                 .open(test_file)
                                 .unwrap();
 
-        f.write_all(existing_lines.iter()
-                                  .fold("".to_string(),
-                                        |s, l| s.to_string() + l + "\n",
-                                       ).as_bytes());
+        let cleanup = f.write_all(existing_lines.iter()
+                                                .fold("".to_string(),
+                                                       |s, l| s.to_string() + l + "\n",
+                                                     ).as_bytes());
+        if cleanup.is_err() {
+            println!("cleanup failed");
+        }
     }
 }
