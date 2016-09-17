@@ -66,9 +66,9 @@ fn filepath(matches: &ArgMatches, default_path: Option<PathBuf>) -> Option<PathB
 fn run_add(data_path: &Path, matches: &ArgMatches) -> bool {
     match matches.subcommand_matches("add") {
         Some(submatches) => {
-            let entry = Entry { date_string: submatches.value_of("date").unwrap(),
-                                amount_string: submatches.value_of("amount").unwrap()
-                            };
+            let entry = Entry::new(submatches.value_of("date").unwrap(),
+                                   submatches.value_of("amount").unwrap()
+                                  );
             match entry.validate() {
                 Validation::Valid => write_to_file(&entry, data_path),
                 Validation::DateParseError => {
@@ -109,12 +109,31 @@ enum Validation {
     AmountParseError
 }
 
-struct Entry<'a> {
-    date_string: &'a str,
-    amount_string: &'a str
+#[derive(PartialEq, Eq, Debug)]
+struct Entry {
+    date_string: String,
+    amount_string: String
 }
 
-impl<'a> Entry<'a> {
+impl Entry {
+    fn new<S>(date_string: S, amount_string: S) -> Self
+        where S: Into<String> {
+        Entry { date_string: date_string.into(),
+                amount_string: amount_string.into()
+              }
+    }
+
+    fn from_line<S>(line: S) -> Self
+        where S: Into<String> {
+        let strs = line.into()
+                       .split("|")
+                       .map(|s| s.to_string())
+                       .collect::<Vec<String>>();
+        Entry { date_string: (&strs[0]).clone(),
+                amount_string: (&strs[1]).clone()
+              }
+    }
+
     fn validate(&self) -> Validation {
         if !self.valid_date() {
             return Validation::DateParseError
@@ -126,21 +145,21 @@ impl<'a> Entry<'a> {
     }
 
     fn valid_date(&self) -> bool {
-        match time::strptime(self.date_string, "%Y-%m-%d") {
+        match time::strptime(&self.date_string, "%Y-%m-%d") {
             Ok(_) => true,
             Err(_) => false
         }
     }
 
     fn valid_amount(&self) -> bool {
-        match f64::from_str(self.amount_string) {
+        match f64::from_str(&self.amount_string) {
             Ok(_) => true,
             Err(_) => false
         }
     }
 
     fn format_for_write(&self) -> String {
-        self.date_string.to_string() + "|" + self.amount_string + "\n"
+        self.date_string.clone() + "|" + &self.amount_string + "\n"
     }
 }
 
@@ -164,13 +183,9 @@ mod test {
         let invalid_date = "9/1/16";
         let valid_amount = "1000";
 
-        let valid_entry = Entry { date_string: valid_date,
-                                  amount_string: valid_amount
-                                };
+        let valid_entry = Entry::new(valid_date, valid_amount);
 
-        let invalid_entry = Entry { date_string: invalid_date,
-                                    amount_string: valid_amount
-                                  };
+        let invalid_entry = Entry::new(invalid_date, valid_amount);
 
         assert_eq!(valid_entry.validate(), Validation::Valid);
         assert_eq!(invalid_entry.validate(), Validation::DateParseError);
@@ -182,13 +197,9 @@ mod test {
         let valid_amount = "1000";
         let invalid_amount = "hello";
 
-        let valid_entry = Entry { date_string: valid_date,
-                                  amount_string: valid_amount
-                                };
+        let valid_entry = Entry::new(valid_date, valid_amount);
 
-        let invalid_entry = Entry { date_string: valid_date,
-                                    amount_string: invalid_amount
-                                  };
+        let invalid_entry = Entry::new(valid_date, invalid_amount);
 
         assert_eq!(valid_entry.validate(), Validation::Valid);
         assert_eq!(invalid_entry.validate(), Validation::AmountParseError);
@@ -199,13 +210,42 @@ mod test {
         let valid_date = "2016-09-01";
         let valid_amount = "1000";
 
-        let valid_entry = Entry { date_string: valid_date,
-                                  amount_string: valid_amount
-                                };
+        let valid_entry = Entry::new(valid_date, valid_amount);
 
         let formatted = valid_entry.format_for_write();
 
         assert_eq!(formatted, "2016-09-01|1000\n");
+    }
+
+    #[test]
+    fn entry_from_line() {
+        let line = "2016-01-01|1000.00".to_string();
+        let entry = Entry::from_line(line);
+
+        assert_eq!(entry.validate(), Validation::Valid);
+        assert_eq!(entry.date_string, "2016-01-01");
+        assert_eq!(entry.amount_string, "1000.00");
+    }
+
+    #[test]
+    fn builds_entries_from_file() {
+        // 2016-01-01|1000.00
+        // 2016-02-01|2000.00
+        let test_file = Path::new("./test_data/existing_data");
+        let f = OpenOptions::new()
+                            .read(true)
+                            .open(test_file)
+                            .unwrap();
+        let reader = BufReader::new(f);
+        let entries = reader.lines()
+                            .map(|l| Entry::from_line(l.unwrap()))
+                            .collect::<Vec<Entry>>();
+
+        let expected = vec![Entry::new("2016-01-01", "1000.00"),
+                            Entry::new("2016-02-01", "2000.00")
+                           ];
+
+        assert_eq!(entries, expected);
     }
 
     #[test]
@@ -243,9 +283,7 @@ mod test {
         let valid_date = "2016-09-01";
         let valid_amount = "1000";
 
-        let valid_entry = Entry { date_string: valid_date,
-                                  amount_string: valid_amount
-                                };
+        let valid_entry = Entry::new(valid_date, valid_amount);
         let test_file = Path::new("./test_data/existing_data");
         let existing_lines = vec!["2016-01-01|1000.00",
                                   "2016-02-01|2000.00"];
