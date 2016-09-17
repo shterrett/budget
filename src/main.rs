@@ -125,13 +125,11 @@ impl Entry {
 
     fn from_line<S>(line: S) -> Self
         where S: Into<String> {
-        let strs = line.into()
-                       .split("|")
-                       .map(|s| s.to_string())
-                       .collect::<Vec<String>>();
-        Entry { date_string: (&strs[0]).clone(),
-                amount_string: (&strs[1]).clone()
-              }
+        let line_str = line.into();
+        let strs = line_str.split("|")
+                           .into_iter()
+                           .collect::<Vec<&str>>();
+        Entry::new(strs[0], strs[1])
     }
 
     fn validate(&self) -> Validation {
