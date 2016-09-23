@@ -103,6 +103,13 @@ fn write_to_file(entry: &Entry, file_path: &Path) -> bool {
     }
 }
 
+fn delta_by_line<'a>(entries: &'a [Entry]) -> Vec<Delta<'a>> {
+    entries.windows(2)
+           .map(|es| Delta::new(&es[0], &es[1]))
+           .collect::<Vec<Delta<'a>>>()
+
+}
+
 #[derive(PartialEq, Eq, Debug)]
 enum Validation {
     Valid,
@@ -156,11 +163,35 @@ impl Entry {
             Err(_) => false
         }
     }
+
+    fn date(&self) -> time::Tm {
+        time::strptime(&self.date_string, "%Y-%m-%d").unwrap()
+    }
+
+    fn amount(&self) -> f64 {
+        f64::from_str(&self.amount_string).unwrap()
+    }
 }
 
 impl fmt::Display for Entry {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}|{}\n", self.date_string, self.amount_string)
+    }
+}
+
+#[derive(PartialEq, Eq, Debug)]
+struct Delta<'a> {
+    start: &'a Entry,
+    end: &'a Entry
+}
+
+impl<'a> Delta<'a> {
+    fn new(start: &'a Entry, end: &'a Entry) -> Self {
+        Delta { start: start, end: end }
+    }
+
+    fn delta(&self) -> f64 {
+        self.end.amount() - self.start.amount()
     }
 }
 
@@ -173,9 +204,11 @@ mod test {
     use std::path::{ Path, PathBuf };
     use clap::{ Arg, App };
     use super::{ Entry,
+                 Delta,
                  Validation,
                  write_to_file,
-                 filepath
+                 filepath,
+                 delta_by_line
                };
 
     #[test]
@@ -245,6 +278,31 @@ mod test {
                            ];
 
         assert_eq!(entries, expected);
+    }
+
+    #[test]
+    fn delta_calculates_difference_between_entries() {
+        let entry_1 = Entry::new("2016-10-01", "1200");
+        let entry_2 = Entry::new("2016-11-01", "1100");
+
+        let delta = Delta::new(&entry_1, &entry_2);
+
+        assert_eq!(delta.delta(), -100.0)
+    }
+
+    #[test]
+    fn returns_differences_for_each_entry() {
+        let entries = vec![Entry::new("2016-09-01", "1000"),
+                           Entry::new("2016-10-01", "1200"),
+                           Entry::new("2016-11-01", "1100"),
+                           Entry::new("2016-12-01", "1300")
+                          ];
+
+        let differences = delta_by_line(&entries).iter()
+                                                 .map(|d| d.delta())
+                                                 .collect::<Vec<f64>>();
+
+        assert_eq!(differences, vec![200.0, -100.0, 200.0]);
     }
 
     #[test]
