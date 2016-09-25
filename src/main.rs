@@ -98,22 +98,20 @@ fn run_add(data_path: &Path, matches: &ArgMatches) -> bool {
 }
 
 fn run_show(data_path: &Path, matches: &ArgMatches) -> bool {
-//    match matches.subcommand_matches("show") {
-//        Some(submatches) => {
-//            match read_file(data_path) {
-//                Some(entries) => {
-//                    let split = entries.len() - submatches.value_of("num").unwrap();
-//                    for delta in delta_by_line(entries.split_at(split).1) {
-//                        println!("{}", delta);
-//                    }
-//                    true
-//                }
-//                None => false
-//            }
-//        }
-//        None => false
-//    }
-    true
+    match matches.subcommand_matches("show") {
+        Some(submatches) => {
+            match read_file(data_path) {
+                Some(entries) => {
+                    for delta in delta_by_line(filter_entries(&entries, &submatches)) {
+                        println!("{}", delta);
+                    }
+                    true
+                }
+                None => false
+            }
+        }
+        None => false
+    }
 }
 
 fn write_to_file(entry: &Entry, file_path: &Path) -> bool {
@@ -148,7 +146,22 @@ fn read_file(file_path: &Path) -> Option<Vec<Entry>> {
                         )
                        .collect::<Vec<Entry>>())
         }
-        Err(_) => None
+        Err(msg) => None
+    }
+}
+
+fn filter_entries<'a>(entries: &'a [Entry], submatches: &ArgMatches) -> &'a [Entry] {
+    if let Some(interval) = submatches.value_of("num") {
+        match usize::from_str(interval) {
+            Ok(n) => {
+                entries.split_at(entries.len().checked_sub(n).unwrap()).1
+            }
+            Err(_) => {
+                entries
+            }
+        }
+    } else {
+        entries
     }
 }
 
@@ -244,6 +257,16 @@ impl<'a> Delta<'a> {
     }
 }
 
+impl<'a> fmt::Display for Delta<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} -> {}: {} -> {} | {}", self.start.date_string,
+                                             self.end.date_string,
+                                             self.start.amount_string,
+                                             self.end.amount_string,
+                                             self.delta())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::fs::OpenOptions;
@@ -256,7 +279,8 @@ mod test {
                  write_to_file,
                  read_file,
                  filepath,
-                 delta_by_line
+                 delta_by_line,
+                 filter_entries
                };
 
     #[test]
@@ -322,6 +346,26 @@ mod test {
     }
 
     #[test]
+    fn returns_the_last_n_entries() {
+        let entries = vec![Entry::new("2016-09-01", "1000"),
+                           Entry::new("2016-10-01", "1200"),
+                           Entry::new("2016-11-01", "1100"),
+                           Entry::new("2016-12-01", "1300")
+                          ];
+
+        let matches = App::new("test")
+                          .arg(Arg::with_name("num")
+                                   .short("n")
+                                   .long("number")
+                                   .takes_value(true))
+                          .get_matches_from(vec!["test", "-n", "2"]);
+
+        let filtered = filter_entries(&entries, &matches);
+
+        assert_eq!(filtered, entries.split_at(2).1);
+    }
+
+    #[test]
     fn delta_calculates_difference_between_entries() {
         let entry_1 = Entry::new("2016-10-01", "1200");
         let entry_2 = Entry::new("2016-11-01", "1100");
@@ -329,6 +373,16 @@ mod test {
         let delta = Delta::new(&entry_1, &entry_2);
 
         assert_eq!(delta.delta(), -100.0)
+    }
+
+    #[test]
+    fn delta_formats_for_display() {
+        let e1 = Entry::new("2016-01-01", "1000.00");
+        let e2 = Entry::new("2016-02-01", "2000.00");
+        let delta = Delta::new(&e1, &e2);
+
+        assert_eq!(format!("{}", delta),
+                   "2016-01-01 -> 2016-02-01: 1000.00 -> 2000.00 | 1000");
     }
 
     #[test]
