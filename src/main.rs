@@ -4,7 +4,7 @@ extern crate time;
 use std::env;
 use std::fmt;
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{ Write, BufRead, BufReader };
 use std::path::{ Path, PathBuf };
 use std::process::exit;
 use std::str::FromStr;
@@ -30,6 +30,13 @@ fn main() {
                                        .help("float")
                                        .index(2)
                                        .required(true)))
+                      .subcommand(SubCommand::with_name("show")
+                                  .about("show differences")
+                                  .arg(Arg::with_name("num")
+                                       .help("number of recent entries")
+                                       .short("n")
+                                       .long("number")
+                                       .takes_value(true)))
                       .get_matches();
 
     let mut exit_code = 0;
@@ -45,6 +52,10 @@ fn main() {
            let success = run_add(&data_path.unwrap(), &matches);
            if !success { exit_code = 1 };
         },
+        Some("show") => {
+            let success = run_show(&data_path.unwrap(), &matches);
+            if !success { exit_code = 2 };
+        }
         Some(other) => { println!("Other subcommand {}", other); }
         None => { println!("No subcommand") }
     }
@@ -86,6 +97,25 @@ fn run_add(data_path: &Path, matches: &ArgMatches) -> bool {
     }
 }
 
+fn run_show(data_path: &Path, matches: &ArgMatches) -> bool {
+//    match matches.subcommand_matches("show") {
+//        Some(submatches) => {
+//            match read_file(data_path) {
+//                Some(entries) => {
+//                    let split = entries.len() - submatches.value_of("num").unwrap();
+//                    for delta in delta_by_line(entries.split_at(split).1) {
+//                        println!("{}", delta);
+//                    }
+//                    true
+//                }
+//                None => false
+//            }
+//        }
+//        None => false
+//    }
+    true
+}
+
 fn write_to_file(entry: &Entry, file_path: &Path) -> bool {
     match OpenOptions::new()
                       .append(true)
@@ -100,6 +130,25 @@ fn write_to_file(entry: &Entry, file_path: &Path) -> bool {
         Err(_) => {
             false
         }
+    }
+}
+
+fn read_file(file_path: &Path) -> Option<Vec<Entry>> {
+    match OpenOptions::new()
+                      .read(true)
+                      .open(file_path) {
+        Ok(f) => {
+            let reader = BufReader::new(f);
+            Some(reader.lines()
+                       .filter_map(|l|
+                            match l {
+                                Ok(line) => Some(Entry::from_line(line)),
+                                Err(_) => None
+                            }
+                        )
+                       .collect::<Vec<Entry>>())
+        }
+        Err(_) => None
     }
 }
 
@@ -198,15 +247,14 @@ impl<'a> Delta<'a> {
 #[cfg(test)]
 mod test {
     use std::fs::OpenOptions;
-    use std::io::BufRead;
-    use std::io::BufReader;
-    use std::io::Write;
+    use std::io::{ Write, BufRead, BufReader };
     use std::path::{ Path, PathBuf };
     use clap::{ Arg, App };
     use super::{ Entry,
                  Delta,
                  Validation,
                  write_to_file,
+                 read_file,
                  filepath,
                  delta_by_line
                };
@@ -264,14 +312,7 @@ mod test {
         // 2016-01-01|1000.00
         // 2016-02-01|2000.00
         let test_file = Path::new("./test_data/existing_data");
-        let f = OpenOptions::new()
-                            .read(true)
-                            .open(test_file)
-                            .unwrap();
-        let reader = BufReader::new(f);
-        let entries = reader.lines()
-                            .map(|l| Entry::from_line(l.unwrap()))
-                            .collect::<Vec<Entry>>();
+        let entries = read_file(&test_file).unwrap();
 
         let expected = vec![Entry::new("2016-01-01", "1000.00"),
                             Entry::new("2016-02-01", "2000.00")
