@@ -2,6 +2,7 @@ extern crate clap;
 extern crate time;
 
 use std::env;
+use std::fmt;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{ Path, PathBuf };
@@ -91,7 +92,7 @@ fn write_to_file(entry: &Entry, file_path: &Path) -> bool {
                       .create(true)
                       .open(file_path) {
         Ok(mut f) => {
-            match f.write_all(entry.format_for_write().as_bytes()) {
+            match f.write_all(format!("{}", entry).as_bytes()) {
                 Ok(_) => true,
                 Err(_) => false
             }
@@ -155,9 +156,11 @@ impl Entry {
             Err(_) => false
         }
     }
+}
 
-    fn format_for_write(&self) -> String {
-        self.date_string.clone() + "|" + &self.amount_string + "\n"
+impl fmt::Display for Entry {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}|{}\n", self.date_string, self.amount_string)
     }
 }
 
@@ -210,9 +213,7 @@ mod test {
 
         let valid_entry = Entry::new(valid_date, valid_amount);
 
-        let formatted = valid_entry.format_for_write();
-
-        assert_eq!(formatted, "2016-09-01|1000\n");
+        assert_eq!(format!("{}", valid_entry), "2016-09-01|1000\n");
     }
 
     #[test]
