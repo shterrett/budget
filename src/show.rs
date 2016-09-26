@@ -1,11 +1,11 @@
 use std::fmt;
-use std::fs::OpenOptions;
-use std::io::{ BufRead, BufReader };
+use std::fs::{ OpenOptions, File };
+use std::io::{ BufRead, BufReader, Error as ioError };
 use std::path::Path;
 use std::str::FromStr;
 use clap::ArgMatches;
 
-use base::Entry;
+use base::{ Entry, Error };
 
 #[derive(PartialEq, Eq, Debug)]
 struct Delta<'a> {
@@ -33,57 +33,49 @@ impl<'a> fmt::Display for Delta<'a> {
     }
 }
 
-pub fn run_show(data_path: &Path, matches: &ArgMatches) -> bool {
-    if let Some(submatches) = matches.subcommand_matches("show") {
-        if let Some(entries) =  read_file(data_path) {
-            for delta in delta_by_line(filter_entries(&entries, &submatches)) {
-                println!("{}", delta);
-            }
-            return true
-        }
-    }
-    false
+pub fn run_show(data_path: &Path, matches: &ArgMatches) -> Result<bool, Error> {
+    matches.subcommand_matches("show")
+           .ok_or(Error::InputError)
+           .and_then(|submatches|
+                read_file(data_path).map(|entries| {
+                    for delta in delta_by_line(filter_entries(&entries, &submatches)) {
+                        println!("{}", delta);
+                    }
+                    true
+                }).map_err(|_| Error::ReadError))
 }
 
-fn read_file(file_path: &Path) -> Option<Vec<Entry>> {
-    match OpenOptions::new()
-                      .read(true)
-                      .open(file_path) {
-        Ok(f) => {
-            let reader = BufReader::new(f);
-            Some(reader.lines()
-                       .filter_map(|l|
-                            match l {
-                                Ok(line) => Some(Entry::from_line(line)),
-                                Err(_) => None
-                            }
-                        )
-                       .collect::<Vec<Entry>>())
-        }
-        Err(_) => None
-    }
+fn read_file(file_path: &Path) -> Result<Vec<Entry>, ioError> {
+    OpenOptions::new()
+                .read(true)
+                .open(file_path)
+                .map(|f| entries_from_file(&f))
+}
+
+fn entries_from_file(f: &File) -> Vec<Entry> {
+    BufReader::new(f).lines()
+                     .filter_map(|l|
+                        l.map(|line| Entry::from_line(line)).ok()
+                     )
+                     .collect::<Vec<Entry>>()
 }
 
 fn filter_entries<'a>(entries: &'a [Entry], submatches: &ArgMatches) -> &'a [Entry] {
-    if let Some(interval) = submatches.value_of("num") {
-        match usize::from_str(interval) {
-            Ok(n) => {
-                entries.split_at(entries.len().checked_sub(n).unwrap()).1
-            }
-            Err(_) => {
-                entries
-            }
-        }
-    } else {
-        entries
-    }
+    submatches.value_of("num")
+              .ok_or(Error::InputError)
+              .and_then(|interval| usize::from_str(interval)
+                                         .map_err(|_| Error::InputError))
+              .and_then(|n| entries.len()
+                                   .checked_sub(n)
+                                   .ok_or(Error::InputError))
+              .map(|split| entries.split_at(split).1)
+              .unwrap_or(entries)
 }
 
 fn delta_by_line<'a>(entries: &'a [Entry]) -> Vec<Delta<'a>> {
     entries.windows(2)
            .map(|es| Delta::new(&es[0], &es[1]))
            .collect::<Vec<Delta<'a>>>()
-
 }
 
 #[cfg(test)]

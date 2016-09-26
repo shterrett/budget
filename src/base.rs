@@ -6,6 +6,13 @@ use std::str::FromStr;
 use clap::ArgMatches;
 
 #[derive(PartialEq, Eq, Debug)]
+pub enum Error {
+    ReadError,
+    WriteError,
+    InputError
+}
+
+#[derive(PartialEq, Eq, Debug)]
 pub enum Validation {
     Valid,
     DateParseError,

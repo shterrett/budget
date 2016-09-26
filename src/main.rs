@@ -54,7 +54,7 @@ fn main() {
         },
         Some("show") => {
             let success = show::run_show(&data_path.unwrap(), &matches);
-            if !success { exit_code = 2 };
+            if !success.is_ok() { exit_code = 2 };
         }
         Some(other) => { println!("Other subcommand {}", other); }
         None => { println!("No subcommand") }
