@@ -45,7 +45,12 @@ fn main() {
                                        .long("date")
                                        .takes_value(true)
                                        .required_unless("num")
-                                       .conflicts_with("num")))
+                                       .conflicts_with("num"))
+                                  .arg(Arg::with_name("agg")
+                                       .help("aggregate entries rather than reporting each line")
+                                       .short("a")
+                                       .long("aggregate")
+                                       .takes_value(false)))
                       .get_matches();
 
     let data_path = filepath(&matches, env::home_dir());

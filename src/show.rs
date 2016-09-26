@@ -40,8 +40,13 @@ pub fn run_show(data_path: &Path, matches: &ArgMatches) -> Result<bool, Error> {
            .ok_or(Error::InputError)
            .and_then(|submatches|
                 read_file(data_path).map(|entries| {
-                    for delta in delta_by_line(filter_entries(&entries, &submatches)) {
-                        println!("{}", delta);
+                    let filtered = filter_entries(&entries, &submatches);
+                    if submatches.is_present("agg") {
+                        println!("{}", aggregate_delta(filtered));
+                    } else {
+                        for delta in delta_by_line(filtered) {
+                            println!("{}", delta);
+                        }
                     }
                     true
                 }).map_err(|_| Error::ReadError))
@@ -91,6 +96,10 @@ fn delta_by_line<'a>(entries: &'a [Entry]) -> Vec<Delta<'a>> {
            .collect::<Vec<Delta<'a>>>()
 }
 
+fn aggregate_delta<'a>(entries: &'a [Entry]) -> Delta<'a> {
+    Delta::new(&entries[0], &entries[entries.len() - 1])
+}
+
 #[cfg(test)]
 mod test {
     use std::path::Path;
@@ -99,7 +108,8 @@ mod test {
     use super::{ Delta,
                  read_file,
                  filter_entries,
-                 delta_by_line
+                 delta_by_line,
+                 aggregate_delta
                };
 
     #[test]
@@ -204,5 +214,18 @@ mod test {
                                                  .collect::<Vec<f64>>();
 
         assert_eq!(differences, vec![200.0, -100.0, 200.0]);
+    }
+
+    #[test]
+    fn returns_aggregate_delta() {
+        let entries = vec![Entry::new("2016-09-01", "1000"),
+                           Entry::new("2016-10-01", "1200"),
+                           Entry::new("2016-11-01", "1100"),
+                           Entry::new("2016-12-01", "1300")
+                          ];
+
+        let agg = aggregate_delta(&entries);
+
+        assert_eq!(agg, Delta::new(&entries[0], &entries[3]));
     }
 }
