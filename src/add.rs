@@ -1,7 +1,7 @@
 extern crate clap;
 
 use std::fs::OpenOptions;
-use std::io::{ Write, Error as ioError };
+use std::io::Write;
 use std::path::Path;
 use clap::ArgMatches;
 
@@ -13,7 +13,7 @@ pub fn run_add(data_path: &Path, matches: &ArgMatches) -> Result<bool, Error> {
            .and_then(|submatches| build_entry(submatches))
            .and_then(|entry| {
             match entry.validate() {
-                Validation::Valid => write_to_file(&entry, data_path).map_err(|_| Error::InputError),
+                Validation::Valid => write_to_file(&entry, data_path),
                 Validation::DateParseError => {
                     println!("Invalid Date {}; must format as yyyy-mm-dd", entry.date_string);
                     Err(Error::InputError)
@@ -35,13 +35,14 @@ fn build_entry(submatches: &ArgMatches) -> Result<Entry, Error> {
               .ok_or(Error::InputError)
 }
 
-fn write_to_file(entry: &Entry, file_path: &Path) -> Result<bool, ioError> {
+fn write_to_file(entry: &Entry, file_path: &Path) -> Result<bool, Error> {
     OpenOptions::new()
                 .append(true)
                 .create(true)
                 .open(file_path)
                 .and_then(|mut f| f.write_all(format!("{}", entry).as_bytes()))
                 .map(|_| true)
+                .map_err(|_| Error::WriteError)
 }
 
 #[cfg(test)]
