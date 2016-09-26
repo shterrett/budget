@@ -1,3 +1,5 @@
+extern crate time;
+
 use std::fmt;
 use std::fs::{ OpenOptions, File };
 use std::io::{ BufRead, BufReader, Error as ioError };
@@ -61,15 +63,26 @@ fn entries_from_file(f: &File) -> Vec<Entry> {
 }
 
 fn filter_entries<'a>(entries: &'a [Entry], submatches: &ArgMatches) -> &'a [Entry] {
-    submatches.value_of("num")
-              .ok_or(Error::InputError)
-              .and_then(|interval| usize::from_str(interval)
-                                         .map_err(|_| Error::InputError))
-              .and_then(|n| entries.len()
-                                   .checked_sub(n)
-                                   .ok_or(Error::InputError))
-              .map(|split| entries.split_at(split).1)
-              .unwrap_or(entries)
+    if submatches.is_present("num") {
+        submatches.value_of("num")
+                  .ok_or(Error::InputError)
+                  .and_then(|interval| usize::from_str(interval)
+                                              .map_err(|_| Error::InputError))
+                  .and_then(|n| entries.len()
+                                       .checked_sub(n)
+                                       .ok_or(Error::InputError))
+    } else {
+        submatches.value_of("date")
+                  .ok_or(Error::InputError)
+                  .and_then(|date_string|
+                      time::strptime(date_string, "%Y-%m-%d").map_err(|_| Error::InputError)
+                  )
+                  .and_then(|date|
+                      entries.iter().position(|e| e.date() >= date).ok_or(Error::InputError)
+                  )
+    }
+    .map(|split| entries.split_at(split).1)
+    .unwrap_or(entries)
 }
 
 fn delta_by_line<'a>(entries: &'a [Entry]) -> Vec<Delta<'a>> {
@@ -121,6 +134,41 @@ mod test {
         let filtered = filter_entries(&entries, &matches);
 
         assert_eq!(filtered, entries.split_at(2).1);
+    }
+
+    #[test]
+    fn returns_entries_after_date() {
+        let entries = vec![Entry::new("2016-09-01", "1000"),
+                           Entry::new("2016-10-01", "1200"),
+                           Entry::new("2016-11-01", "1100"),
+                           Entry::new("2016-12-01", "1300")
+                          ];
+
+        let matches = App::new("test")
+                          .arg(Arg::with_name("date")
+                                   .help("start date for entries")
+                                   .short("d")
+                                   .long("date")
+                                   .takes_value(true)
+                                   .required_unless("num")
+                                   .conflicts_with("num"))
+                          .get_matches_from(vec!["test", "-d", "2016-10-01"]);
+
+        let filtered = filter_entries(&entries, &matches);
+        assert_eq!(filtered, entries.split_at(1).1);
+
+        let matches_2 = App::new("test")
+                            .arg(Arg::with_name("date")
+                                     .help("start date for entries")
+                                     .short("d")
+                                     .long("date")
+                                     .takes_value(true)
+                                     .required_unless("num")
+                                     .conflicts_with("num"))
+                            .get_matches_from(vec!["test", "-d", "2016-10-15"]);
+
+        let filtered_2 = filter_entries(&entries, &matches_2);
+        assert_eq!(filtered_2, entries.split_at(2).1);
     }
 
     #[test]

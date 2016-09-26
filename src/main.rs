@@ -36,7 +36,16 @@ fn main() {
                                        .help("number of recent entries")
                                        .short("n")
                                        .long("number")
-                                       .takes_value(true)))
+                                       .takes_value(true)
+                                       .required_unless("date")
+                                       .conflicts_with("date"))
+                                  .arg(Arg::with_name("date")
+                                       .help("start date for entries")
+                                       .short("d")
+                                       .long("date")
+                                       .takes_value(true)
+                                       .required_unless("num")
+                                       .conflicts_with("num")))
                       .get_matches();
 
     let data_path = filepath(&matches, env::home_dir());
