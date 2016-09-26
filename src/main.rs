@@ -8,7 +8,7 @@ mod base;
 mod add;
 mod show;
 
-use base::{ filepath };
+use base::{ filepath, Error };
 
 fn main() {
     let matches = App::new("Budget")
@@ -39,26 +39,33 @@ fn main() {
                                        .takes_value(true)))
                       .get_matches();
 
-    let mut exit_code = 0;
-
     let data_path = filepath(&matches, env::home_dir());
     if !data_path.is_some() {
         println!("Could not find file path");
         exit(1);
     }
 
-    match matches.subcommand_name() {
-        Some("add") => {
-           let success = add::run_add(&data_path.unwrap(), &matches);
-           if !success { exit_code = 1 };
-        },
-        Some("show") => {
-            let success = show::run_show(&data_path.unwrap(), &matches);
-            if !success.is_ok() { exit_code = 2 };
-        }
-        Some(other) => { println!("Other subcommand {}", other); }
-        None => { println!("No subcommand") }
-    }
+    let result = filepath(&matches, env::home_dir()).ok_or(Error::InputError)
+                                                    .and_then(|data_path| {
+        match matches.subcommand_name() {
+             Some("add") => {
+                 add::run_add(&data_path, &matches)
+             },
+             Some("show") => {
+                 show::run_show(&data_path, &matches)
+             },
+             _ => { Err(Error::InputError) }
+         }});
 
-    exit(exit_code);
+    exit(exit_code(result));
+}
+
+fn exit_code(status: Result<bool, Error>) -> i32 {
+    match status {
+        Ok(true) => 0,
+        Ok(false) => 1,
+        Err(Error::InputError) => 2,
+        Err(Error::ReadError) => 3,
+        Err(Error::WriteError) => 4
+    }
 }
