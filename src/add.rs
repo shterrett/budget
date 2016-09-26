@@ -1,54 +1,47 @@
 extern crate clap;
 
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{ Write, Error as ioError };
 use std::path::Path;
 use clap::ArgMatches;
 
-use base::{ Entry, Validation };
+use base::{ Entry, Validation, Error };
 
-pub fn run_add(data_path: &Path, matches: &ArgMatches) -> bool {
-    match matches.subcommand_matches("add") {
-        Some(submatches) => {
-            let entry = Entry::new(submatches.value_of("date").unwrap(),
-                                   submatches.value_of("amount").unwrap()
-                                  );
+pub fn run_add(data_path: &Path, matches: &ArgMatches) -> Result<bool, Error> {
+    matches.subcommand_matches("add")
+           .ok_or(Error::InputError)
+           .and_then(|submatches| build_entry(submatches))
+           .and_then(|entry| {
             match entry.validate() {
-                Validation::Valid => write_to_file(&entry, data_path),
+                Validation::Valid => write_to_file(&entry, data_path).map_err(|_| Error::InputError),
                 Validation::DateParseError => {
                     println!("Invalid Date {}; must format as yyyy-mm-dd", entry.date_string);
-                    false
+                    Err(Error::InputError)
                 },
                 Validation::AmountParseError => {
                     println!("Invalid Amount {}; must be a float", entry.amount_string);
-                    false
+                    Err(Error::InputError)
                 }
             }
-        }
-        None => false
-    }
+        })
 }
 
-fn write_to_file(entry: &Entry, file_path: &Path) -> bool {
-    match OpenOptions::new()
-                      .append(true)
-                      .create(true)
-                      .open(file_path) {
-        Ok(mut f) => {
-            match f.write_all(format!("{}", entry).as_bytes()) {
-                Ok(_) => {
-                    match f.sync_all() {
-                        Ok(_) => true,
-                        Err(_) => false
-                    }
-                },
-                Err(_) => false
-            }
-        }
-        Err(_) => {
-            false
-        }
-    }
+fn build_entry(submatches: &ArgMatches) -> Result<Entry, Error> {
+    submatches.value_of("date")
+              .and_then(|date| {
+                  submatches.value_of("amount")
+                            .map(|amount| Entry::new(date, amount))
+              })
+              .ok_or(Error::InputError)
+}
+
+fn write_to_file(entry: &Entry, file_path: &Path) -> Result<bool, ioError> {
+    OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(file_path)
+                .and_then(|mut f| f.write_all(format!("{}", entry).as_bytes()))
+                .map(|_| true)
 }
 
 #[cfg(test)]
@@ -83,7 +76,8 @@ mod test {
                        existing_lines);
         }
 
-        write_to_file(&valid_entry, &test_file);
+        let res = write_to_file(&valid_entry, &test_file);
+        assert!(res.is_ok());
         {
             let f = OpenOptions::new()
                                 .read(true)
